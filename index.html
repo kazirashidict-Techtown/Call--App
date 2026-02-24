@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeonConnect Pro | Final v3.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&family=Rajdhani:wght@600;700&display=swap');
+        body { background: #050508; color: #fff; font-family: 'Rajdhani', sans-serif; height: 100vh; overflow: hidden; }
+        .neon-card { background: rgba(0, 0, 0, 0.85); border: 2px solid #00ffff; box-shadow: 0 0 20px rgba(0, 255, 255, 0.2); border-radius: 25px; }
+        .video-box { border: 2px solid #ff00ff; border-radius: 20px; background: #000; position: relative; overflow: hidden; }
+        .btn-connect { background: linear-gradient(90deg, #00ffff, #ff00ff); color: #000; font-weight: 900; transition: 0.3s; }
+        .btn-connect:hover { transform: scale(1.02); box-shadow: 0 0 20px #ff00ff; }
+        #chatBox::-webkit-scrollbar { width: 4px; }
+        #chatBox::-webkit-scrollbar-thumb { background: #00ffff; border-radius: 10px; }
+        .bubble { padding: 8px 12px; border-radius: 15px; max-width: 85%; font-size: 13px; font-weight: 600; }
+        .bubble-me { background: #00ffff; color: #000; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .bubble-them { background: #ff00ff; color: #fff; align-self: flex-start; border-bottom-left-radius: 2px; }
+    </style>
+</head>
+<body class="flex items-center justify-center p-2 md:p-6">
+
+    <div class="neon-card w-full max-w-6xl h-[92vh] flex flex-col lg:flex-row overflow-hidden border-2 border-cyan-500">
+        
+        <div class="lg:w-80 w-full bg-black/50 p-6 flex flex-col gap-4 border-r border-cyan-900/50">
+            <div class="text-center">
+                <h1 style="font-family: 'Orbitron';" class="text-3xl font-black text-cyan-400">NEON<span class="text-white">PRO</span></h1>
+                <p class="text-[9px] tracking-[0.4em] text-cyan-500 opacity-70">ENCRYPTED SIGNAL</p>
+            </div>
+
+            <div class="space-y-3">
+                <input id="myId" type="text" placeholder="Your Unique ID" class="w-full bg-black border border-cyan-500 p-3 rounded-xl outline-none text-white font-bold text-sm">
+                <div class="flex gap-2">
+                    <input id="friendId" type="text" placeholder="Friend's ID" class="w-full bg-black border border-pink-500 p-3 rounded-xl outline-none text-white font-bold text-sm">
+                    <button onclick="copyInviteLink()" class="bg-cyan-500 text-black px-3 rounded-xl hover:bg-white"><i class="fas fa-link"></i></button>
+                </div>
+                <div class="flex gap-2">
+                    <button id="callBtn" onclick="initiateCall()" class="btn-connect flex-1 py-3 rounded-xl">CONNECT</button>
+                    <button onclick="location.reload()" class="bg-red-600 px-4 rounded-xl font-bold"><i class="fas fa-power-off"></i></button>
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col bg-black/60 rounded-2xl border border-white/10 overflow-hidden">
+                <div id="chatBox" class="flex-1 p-4 overflow-y-auto flex flex-col gap-2"></div>
+                <div class="p-2 bg-white/5 flex gap-2">
+                    <input id="msgInput" type="text" placeholder="Type message..." class="bg-transparent flex-1 outline-none text-xs text-white p-1">
+                    <button onclick="sendChatMessage()" class="text-cyan-400"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 p-4 bg-black relative flex flex-col gap-4">
+            <div class="flex-1 video-box">
+                <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+                <div id="placeholder" class="absolute inset-0 flex items-center justify-center bg-black/80">
+                    <p class="text-cyan-500 font-bold animate-pulse">AWAITING CONNECTION...</p>
+                </div>
+                <div class="absolute bottom-4 right-4 w-32 h-44 border-2 border-cyan-400 rounded-xl overflow-hidden shadow-2xl z-20 bg-black">
+                    <video id="localVideo" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                </div>
+            </div>
+            <div class="h-10 bg-cyan-900/20 rounded-xl flex items-center px-4 justify-between border border-cyan-500/20">
+                <span class="text-[10px] font-bold text-cyan-400 uppercase">Status: <span id="status">Idle</span></span>
+                <span class="text-[10px] text-gray-500">P2P v3.0 SECURE</span>
+            </div>
+        </div>
+    </div>
+
+<script>
+const firebaseConfig = {
+    apiKey: "AIzaSyDLxciFvteNdb1-gLgwH96WvppubzjDABw",
+    authDomain: "neon-chat-app-db73c.firebaseapp.com",
+    projectId: "neon-chat-app-db73c",
+    databaseURL: "https://neon-chat-app-db73c-default-rtdb.firebaseio.com",
+    appId: "1:1017316698976:web:6250fa0dd5597deccbcc05"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let localStream, peer, myId = '';
+
+// URL Auto-fill
+window.onload = () => {
+    const params = new URLSearchParams(window.location.search);
+    if(params.get('call')) document.getElementById('friendId').value = params.get('call');
+};
+
+function copyInviteLink() {
+    myId = document.getElementById('myId').value;
+    if(!myId) return alert("Set your ID first!");
+    const link = `${window.location.origin}${window.location.pathname}?call=${myId}`;
+    navigator.clipboard.writeText(link);
+    alert("Invite link copied!");
+}
+
+async function getMedia() {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    document.getElementById('localVideo').srcObject = localStream;
+    document.getElementById('placeholder').style.display = 'none';
+    return localStream;
+}
+
+// কল শুরু করা (Initiator)
+async function initiateCall() {
+    myId = document.getElementById('myId').value;
+    const friendId = document.getElementById('friendId').value;
+    if(!myId || !friendId) return alert("Enter both IDs");
+
+    const stream = await getMedia();
+    createPeer(true, friendId, stream);
+    document.getElementById('status').innerText = "Calling...";
+}
+
+function createPeer(initiator, friendId, stream) {
+    peer = new SimplePeer({
+        initiator: initiator,
+        trickle: false,
+        stream: stream,
+        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
+    });
+
+    peer.on('signal', data => {
+        const path = initiator ? 'calls/' + friendId : 'answers/' + friendId;
+        db.ref(path).set({ from: myId, signal: JSON.stringify(data) });
+    });
+
+    peer.on('stream', remoteStream => {
+        const rv = document.getElementById('remoteVideo');
+        rv.srcObject = remoteStream;
+        rv.play();
+        document.getElementById('status').innerText = "Connected";
+    });
+
+    peer.on('data', data => appendMessage('Them', data.toString()));
+    
+    peer.on('error', err => console.log('Peer error:', err));
+}
+
+// কল রিসিভ করা লজিক
+setInterval(() => {
+    myId = document.getElementById('myId').value;
+    if(!myId || peer) return;
+
+    db.ref('calls/' + myId).once('value', async snapshot => {
+        const data = snapshot.val();
+        if(data) {
+            if(confirm("Call from: " + data.from)) {
+                const stream = await getMedia();
+                createPeer(false, data.from, stream);
+                peer.signal(JSON.parse(data.signal));
+                db.ref('calls/' + myId).remove();
+            } else { db.ref('calls/' + myId).remove(); }
+        }
+    });
+
+    db.ref('answers/' + myId).on('value', snapshot => {
+        const data = snapshot.val();
+        if(data && peer) {
+            peer.signal(JSON.parse(data.signal));
+            db.ref('answers/' + myId).remove();
+        }
+    });
+}, 3000);
+
+function sendChatMessage() {
+    const input = document.getElementById('msgInput');
+    if(!input.value || !peer || !peer.connected) return;
+    peer.send(input.value);
+    appendMessage('Me', input.value);
+    input.value = '';
+}
+
+function appendMessage(sender, text) {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = `bubble bubble-${sender === 'Me' ? 'me' : 'them'}`;
+    div.innerText = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+</script>
+</body>
+</html>
